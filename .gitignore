@@ -1,0 +1,27 @@
+# Java / Maven
+neoclarity-api/target/
+*.class
+*.jar
+!*-sources.jar
+
+# React / Node
+neoclarity-ui/node_modules/
+neoclarity-ui/dist/
+
+# Environment — never commit these
+.env
+.env.local
+application-local.yml
+application-secret.yml
+**/application-prod.yml
+
+# Secrets
+*.pem
+*.key
+*.p12
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.DS_Store

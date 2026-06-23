@@ -1,0 +1,224 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, Tooltip } from 'recharts';
+import { dashboardApi, recommendationApi, accountApi } from '../api/services';
+import { useApi } from '../hooks/useApi';
+import { Card, SectionTitle, Badge, Btn, Ring, ProgressBar, Spinner, fmt, C, scoreColor, priorityBg, priorityColor } from '../components/ui';
+
+export function DashboardPage({ onRecsChange }: { onRecsChange: () => void }) {
+  const navigate = useNavigate();
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const { data: score, loading: scoreLoading, refetch: refetchScore } = useApi(dashboardApi.resilienceScore);
+  const { data: scoreHistory } = useApi(dashboardApi.resilienceHistory);
+  const { data: nba, loading: nbaLoading, refetch: refetchNba } = useApi(recommendationApi.nextBestAction);
+  const { data: accounts, loading: accsLoading } = useApi(accountApi.list);
+  const { data: netWorth } = useApi(accountApi.netWorth);
+
+  const handleNbaAction = async (response: 'APPROVED' | 'DISMISSED' | 'REMIND_LATER') => {
+    if (!nba) return;
+    setActionLoading(true);
+    try {
+      await recommendationApi.respond(nba.recommendationId, response);
+      refetchNba();
+      refetchScore();
+      onRecsChange();
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Radar chart data from score components
+  const radarData = score ? [
+    { label: 'Emergency Fund', value: score.components.emergencyFund },
+    { label: 'Cash Flow',      value: score.components.cashFlow },
+    { label: 'Debt Burden',    value: score.components.debtBurden },
+    { label: 'Income',         value: score.components.incomeStability },
+    { label: 'Goal Readiness', value: score.components.goalReadiness },
+  ] : [];
+
+  // Score trend — delta between latest and previous
+  const trend = scoreHistory && scoreHistory.length >= 2
+    ? (scoreHistory[0]?.overall ?? 0) - (scoreHistory[1]?.overall ?? 0)
+    : null;
+
+  const acctIcons: Record<string, string> = {
+    CHECKING: '🏦', SAVINGS: '💰', CREDIT: '💳', LOAN: '📋',
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
+
+      {/* ── LEFT COLUMN ─────────────────────────────────────────── */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* NEXT BEST ACTION — hero card */}
+        {nbaLoading ? <Card><Spinner /></Card> : nba && nba.response === 'PENDING' ? (
+          <Card style={{ border: `2px solid ${C.accent}`, background: `linear-gradient(135deg, ${C.lightBg} 0%, ${C.white} 100%)` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 18 }}>⚡</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    Next Best Action
+                  </span>
+                  <Badge label={nba.priority} color={priorityColor(nba.priority)} bg={priorityBg(nba.priority)} />
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: C.gray800, marginBottom: 8 }}>
+                  {nba.recommendationText}
+                </div>
+                <div style={{ fontSize: 13, color: C.gray600, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600 }}>Why: </span>{nba.reason}
+                </div>
+                <div style={{ fontSize: 13, color: C.gray600, marginBottom: 12 }}>
+                  <span style={{ fontWeight: 600 }}>Impact: </span>{nba.expectedImpact}
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                  <div style={{ background: C.tealBg, borderRadius: 8, padding: '8px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: C.teal }}>{Math.round(nba.confidence * 100)}%</div>
+                    <div style={{ fontSize: 10, color: C.gray600 }}>Confidence</div>
+                  </div>
+                  <div style={{ background: C.lightBg, borderRadius: 8, padding: '8px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, whiteSpace: 'nowrap' }}>{nba.agent.replace('Agent', '')}</div>
+                    <div style={{ fontSize: 10, color: C.gray600 }}>Agent</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <Btn label={actionLoading ? '…' : '✓ Approve'} variant="success"
+                    onClick={() => handleNbaAction('APPROVED')} disabled={actionLoading} />
+                  <Btn label="Remind Later" variant="ghost"
+                    onClick={() => handleNbaAction('REMIND_LATER')} disabled={actionLoading} />
+                  <Btn label="Dismiss" variant="ghost"
+                    onClick={() => handleNbaAction('DISMISSED')} disabled={actionLoading} />
+                </div>
+              </div>
+            </div>
+          </Card>
+        ) : (
+          <Card style={{ border: `2px solid ${C.teal}`, background: C.tealBg }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 28 }}>✅</span>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.teal }}>All recommendations actioned</div>
+                <div style={{ fontSize: 13, color: C.gray600 }}>
+                  <span style={{ cursor: 'pointer', color: C.accent, textDecoration: 'underline' }}
+                    onClick={() => navigate('/recommendations')}>View all recommendations</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* KEY INDICATORS */}
+        {scoreLoading ? <Card><Spinner /></Card> : score && (
+          <Card>
+            <SectionTitle>Key Indicators</SectionTitle>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {[
+                { label: 'Emergency Fund', value: `${score.components.emergencyFund}/100`, icon: score.components.emergencyFund < 50 ? '⚠️' : '✅', color: scoreColor(score.components.emergencyFund), bg: score.components.emergencyFund < 50 ? C.amberBg : C.tealBg },
+                { label: 'Cash Flow',      value: `${score.components.cashFlow}/100`,      icon: '📊', color: scoreColor(score.components.cashFlow), bg: C.lightBg },
+                { label: 'Debt Burden',    value: `${score.components.debtBurden}/100`,    icon: score.components.debtBurden < 50 ? '⚠️' : '✅', color: scoreColor(score.components.debtBurden), bg: score.components.debtBurden < 50 ? C.amberBg : C.tealBg },
+                { label: 'Income Stability', value: `${score.components.incomeStability}/100`, icon: '💼', color: scoreColor(score.components.incomeStability), bg: C.lightBg },
+              ].map(({ label, value, icon, color, bg }) => (
+                <div key={label} style={{ background: bg, borderRadius: 10, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, color: C.gray400, fontWeight: 600, marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color }}>{icon} {value}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* RADAR CHART — component breakdown */}
+        {score && radarData.length > 0 && (
+          <Card>
+            <SectionTitle>Resilience Breakdown</SectionTitle>
+            <ResponsiveContainer width="100%" height={220}>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke={C.gray200} />
+                <PolarAngleAxis dataKey="label" tick={{ fontSize: 11, fill: C.gray600 }} />
+                <Radar name="Score" dataKey="value" stroke={C.accent} fill={C.accent} fillOpacity={0.15} />
+                <Tooltip formatter={(v: number) => [`${v}/100`, 'Score']} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </Card>
+        )}
+      </div>
+
+      {/* ── RIGHT COLUMN ────────────────────────────────────────── */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* CLARITY SCORE */}
+        {scoreLoading ? <Card><Spinner /></Card> : score && (
+          <Card style={{ textAlign: 'center' }}>
+            <SectionTitle>Clarity Score</SectionTitle>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+              <Ring score={score.overall} size={120} stroke={12} />
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: scoreColor(score.overall), marginBottom: 6 }}>
+              {score.overall >= 75 ? 'Strong Resilience' : score.overall >= 50 ? 'Moderate Resilience' : 'Needs Attention'}
+            </div>
+            {trend !== null && (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: trend >= 0 ? C.tealBg : C.amberBg,
+                borderRadius: 99, padding: '3px 10px',
+              }}>
+                <span style={{ fontSize: 12, color: trend >= 0 ? C.teal : C.amber, fontWeight: 700 }}>
+                  {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)} this month
+                </span>
+              </div>
+            )}
+            {/* Component bars */}
+            <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {Object.entries({
+                'Emergency Fund':    score.components.emergencyFund,
+                'Cash Flow':         score.components.cashFlow,
+                'Debt Burden':       score.components.debtBurden,
+                'Income Stability':  score.components.incomeStability,
+                'Goal Readiness':    score.components.goalReadiness,
+              }).map(([label, s]) => (
+                <div key={label}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <span style={{ fontSize: 11, color: C.gray600 }}>{label}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: scoreColor(s) }}>{s}</span>
+                  </div>
+                  <ProgressBar value={s} max={100} color={scoreColor(s)} />
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* LINKED ACCOUNTS */}
+        {accsLoading ? <Card><Spinner /></Card> : accounts && (
+          <Card>
+            <SectionTitle>Linked Accounts</SectionTitle>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+              {accounts.map(a => (
+                <div key={a.accountId} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 0', borderBottom: `1px solid ${C.gray100}`,
+                }}>
+                  <span style={{ fontSize: 20 }}>{acctIcons[a.accountType] ?? '🏦'}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.gray800 }}>{a.institution}</div>
+                    <div style={{ fontSize: 11, color: C.gray400 }}>{a.accountType}</div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: a.balance < 0 ? C.red : C.teal }}>
+                    {fmt.currency(a.balance)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {netWorth && (
+              <div style={{ marginTop: 10, fontSize: 12, color: C.gray400, textAlign: 'center' }}>
+                Net worth: <span style={{ fontWeight: 700, color: C.gray800 }}>{fmt.currency(netWorth.netWorth)}</span>
+              </div>
+            )}
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}

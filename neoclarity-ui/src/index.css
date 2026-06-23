@@ -1,0 +1,17 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: 'Open Sans', -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #14181F;
+  background: #F4F5F7;
+}
+button { cursor: pointer; font-family: inherit; border: none; background: none; }
+a { text-decoration: none; color: inherit; }
+input, select, textarea { font-family: inherit; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #CDD2D8; border-radius: 6px; border: 2px solid #F4F5F7; }
+::-webkit-scrollbar-thumb:hover { background: #B3BAC2; }
+@keyframes ncFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ncPop { 0% { transform: scale(.96); opacity: .4; } 100% { transform: scale(1); opacity: 1; } }
+.nc-fade { animation: ncFade 0.18s ease; }

@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: neoclarity-postgres
+    environment:
+      POSTGRES_DB: neoclarity
+      POSTGRES_USER: neoclarity
+      POSTGRES_PASSWORD: neoclarity_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - neoclarity_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neoclarity"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: neoclarity-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/neoclarity
+      DB_USERNAME: neoclarity
+      DB_PASSWORD: neoclarity_dev
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-this-must-be-at-least-256-bits-long-for-hs256}
+      JWT_EXPIRATION_MS: 86400000
+      # FastAPI agent layer — Week 5. Container name resolves once that service is added.
+      AGENT_BASE_URL: ${AGENT_BASE_URL:-http://host.docker.internal:8000}
+    ports:
+      - "8080:8080"
+
+volumes:
+  neoclarity_pg_data:
