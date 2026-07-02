@@ -2,6 +2,7 @@ package com.neoclarity.api.config;
 
 import com.neoclarity.api.model.*;
 import com.neoclarity.api.repository.*;
+import com.neoclarity.api.service.TwinProjectionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -34,6 +35,7 @@ public class DemoDataSeeder {
     private final LifeEventRepository lifeEventRepository;
     private final CustomerContextRepository customerContextRepository;
     private final PasswordEncoder passwordEncoder;
+    private final TwinProjectionService twinProjectionService;
 
     private static final String DEMO_EMAIL = "demo@neoclarity.app";
 
@@ -215,6 +217,20 @@ public class DemoDataSeeder {
                 .dateRangeStart(LocalDate.of(2026, 2, 1))
                 .dateRangeEnd(LocalDate.of(2026, 4, 30))
                 .build());
+
+        // Project demo customer + accounts + goals into Neo4j Twin
+        // This runs async so it doesn't block application startup.
+        var accounts = accountRepository.findByCustomerId(customer.getId());
+        twinProjectionService.projectFullTwin(customer, accounts);
+
+        // Seed two-member household structure (spouse + mortgage + shared goal)
+        // Synchronous — needs customer node to exist first; runs after projectCustomer completes.
+        // Small startup delay to let the async projectCustomer finish.
+        final Customer seededCustomer = customer;
+        new Thread(() -> {
+            try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+            twinProjectionService.projectHouseholdMembers(seededCustomer);
+        }, "household-seeder").start();
     }
 
     private static String sha256(String input) {

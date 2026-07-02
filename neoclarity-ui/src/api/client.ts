@@ -119,6 +119,29 @@ export const lifeEventsApi = {
 }
 
 
+export interface AccountTemplate {
+  accountType: 'CHECKING' | 'SAVINGS' | 'CREDIT' | 'LOAN'
+  displayName: string
+  balance: number
+  mask: string
+}
+
+export interface Institution {
+  id: string
+  name: string
+  logo: string
+  primaryColor: string
+  description: string
+  accounts: AccountTemplate[]
+}
+
+export interface LinkResult {
+  institution: string
+  accountsLinked: number
+  transactionsImported: number
+  eventDetected: boolean
+}
+
 export const openBankingApi = {
   getInstitutions: () => api.get<Institution[]>('/open-banking/institutions'),
   getInstitution: (id: string) => api.get<Institution>(`/open-banking/institutions/${id}`),
