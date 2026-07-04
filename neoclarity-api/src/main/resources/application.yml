@@ -36,6 +36,12 @@ agent:
   analyze-path: /api/agent/analyze
   timeout-ms: ${AGENT_TIMEOUT_MS:10000}   # 10s — matches NFR Recommendation Generation < 10s
 
+# ── Neo4j AuraDB (Household Digital Twin projection) ─────────────────────────
+neo4j:
+  uri: ${NEO4J_URI:bolt://localhost:7687}
+  username: ${NEO4J_USERNAME:neo4j}
+  password: ${NEO4J_PASSWORD:password}
+
 logging:
   level:
     com.neoclarity: INFO

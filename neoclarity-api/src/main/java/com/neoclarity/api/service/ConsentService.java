@@ -39,6 +39,7 @@ public class ConsentService {
     private final RecommendationRepository recommendationRepository;
     private final CustomerContextRepository customerContextRepository;
     private final CustomerRepository customerRepository;
+    private final TwinProjectionService twinProjectionService;
 
     /** SOFT — deactivate a single account. Transactions are retained for audit. */
     @Transactional
@@ -53,10 +54,7 @@ public class ConsentService {
         account.setActive(false);
         account.setLastRefreshedAt(LocalDateTime.now());
         accountRepository.save(account);
-
-        // NOTE (Week 5): mirror to Neo4j — set Account.is_active=false so agents
-        // exclude it from Twin traversal. Transactions and BELONGS_TO edges remain
-        // for lineage/audit.
+        twinProjectionService.setAccountActive(account.getAccountId(), false);
 
         return new DisconnectResult(account.getInstitution(), account.getAccountType(), false);
     }
@@ -70,6 +68,7 @@ public class ConsentService {
         account.setActive(true);
         account.setLastRefreshedAt(LocalDateTime.now());
         accountRepository.save(account);
+        twinProjectionService.setAccountActive(account.getAccountId(), true);
 
         return new DisconnectResult(account.getInstitution(), account.getAccountType(), true);
     }

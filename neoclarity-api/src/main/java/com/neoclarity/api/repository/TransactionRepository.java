@@ -13,6 +13,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findByAccountIdAndTransactionDateGreaterThanEqual(Long accountId, LocalDate since);
     List<Transaction> findByAccountCustomerIdAndTransactionDateGreaterThanEqual(Long customerId, LocalDate since);
     List<Transaction> findByNeo4jSyncedFalse();
+    List<Transaction> findByAccountIdAndNeo4jSyncedFalse(Long accountId);
 
     @Modifying
     @Transactional

@@ -5,6 +5,7 @@ import com.neoclarity.api.model.Account;
 import com.neoclarity.api.model.Customer;
 import com.neoclarity.api.repository.AccountRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,10 +19,13 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OpenBankingService {
 
     private final AccountRepository accountRepository;
     private final MockTransactionGenerator transactionGenerator;
+    private final TwinProjectionService twinProjectionService;
+    private final AgentService agentService;
 
     /** Provider catalog — the institutions a customer can connect. */
     public List<OpenBankingCatalog.Institution> getInstitutions() {
@@ -38,10 +42,9 @@ public class OpenBankingService {
     }
 
     /**
-     * Complete the consent handshake: link the selected accounts from an institution
-     * and generate their transaction history. This is the moment that, in a real
-     * system, the OAuth consent token would be exchanged and the aggregator's
-     * account + transaction feed would begin flowing.
+     * Complete the consent handshake: link the selected accounts from an institution,
+     * generate their transaction history, and project everything into the Neo4j
+     * Household Digital Twin asynchronously.
      */
     @Transactional
     public LinkResult linkAccounts(Customer customer, String institutionId, List<String> selectedMasks) {
@@ -50,9 +53,9 @@ public class OpenBankingService {
         int accountsLinked = 0;
         int transactionsImported = 0;
         boolean yellowstoneInjected = false;
+        List<Account> linkedAccounts = new java.util.ArrayList<>();
 
         for (OpenBankingCatalog.AccountTemplate tmpl : inst.accounts()) {
-            // If the customer selected specific accounts, honour that; otherwise link all
             if (selectedMasks != null && !selectedMasks.isEmpty() && !selectedMasks.contains(tmpl.mask())) {
                 continue;
             }
@@ -70,13 +73,12 @@ public class OpenBankingService {
                     .build();
 
             account = accountRepository.save(account);
+            linkedAccounts.add(account);
             accountsLinked++;
 
-            // Generate transaction history
+            // Generate transaction history into PostgreSQL
             transactionsImported += transactionGenerator.generateForAccount(account);
 
-            // Inject the Yellowstone cluster on the first credit account linked —
-            // this is what powers the Event Intelligence demo
             if ("CREDIT".equals(tmpl.accountType()) && !yellowstoneInjected) {
                 transactionGenerator.injectYellowstoneCluster(account);
                 transactionsImported += 4;
@@ -87,6 +89,27 @@ public class OpenBankingService {
         if (accountsLinked == 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "No accounts were selected to link");
         }
+
+        // Grant consent if not already active
+        if (!customer.isConsentActive()) {
+            customer.setConsentActive(true);
+            customer.setConsentGrantedAt(LocalDateTime.now());
+        }
+
+        // ── Project to Neo4j Twin (async — runs after PostgreSQL commit) ──
+        // @Async means this returns immediately; projection happens in background.
+        // The @Transactional boundary above ensures PG is committed before Neo4j reads.
+        final List<Account> accountsForProjection = linkedAccounts;
+        twinProjectionService.projectFullTwin(customer, accountsForProjection);
+
+        // Trigger agent analysis asynchronously after Twin is projected.
+        // subscribeOn ensures this doesn't block the HTTP response.
+        agentService.analyze(customer.getHashedId(), "ACCOUNT_LINK")
+            .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+            .subscribe(
+                result -> log.info("agent.link_analysis_complete hid={}", customer.getHashedId().substring(0, 8)),
+                error  -> log.warn("agent.link_analysis_error err={}", error.getMessage())
+            );
 
         return new LinkResult(inst.name(), accountsLinked, transactionsImported, yellowstoneInjected);
     }

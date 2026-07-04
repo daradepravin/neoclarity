@@ -30,10 +30,24 @@ services:
       DB_PASSWORD: neoclarity_dev
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-this-must-be-at-least-256-bits-long-for-hs256}
       JWT_EXPIRATION_MS: 86400000
-      # FastAPI agent layer — Week 5. Container name resolves once that service is added.
-      AGENT_BASE_URL: ${AGENT_BASE_URL:-http://host.docker.internal:8000}
+      # Neo4j AuraDB
+      NEO4J_URI: ${NEO4J_URI:-bolt://localhost:7687}
+      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
+      AGENT_BASE_URL: http://agent:8000
     ports:
       - "8080:8080"
+
+  agent:
+    build: ../neoclarity-agent
+    container_name: neoclarity-agent
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      NEO4J_URI: ${NEO4J_URI:-bolt://localhost:7687}
+      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
+    ports:
+      - "8000:8000"
 
 volumes:
   neoclarity_pg_data:

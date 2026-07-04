@@ -20,6 +20,7 @@ public class GoalService {
             List.of("EMERGENCY_FUND", "VACATION", "COLLEGE", "DEBT_PAYOFF");
 
     private final GoalRepository goalRepository;
+    private final TwinProjectionService twinProjectionService;
 
     public List<Goal> getGoalsForCustomer(Long customerId) {
         return goalRepository.findByCustomerId(customerId);
@@ -27,10 +28,8 @@ public class GoalService {
 
     public Goal createGoal(Customer customer, GoalRequest req) {
         if (!VALID_TYPES.contains(req.goalType())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "goalType must be one of " + VALID_TYPES);
+            throw new ApiException(HttpStatus.BAD_REQUEST, "goalType must be one of " + VALID_TYPES);
         }
-
         Goal goal = Goal.builder()
                 .customer(customer)
                 .goalType(req.goalType())
@@ -40,30 +39,30 @@ public class GoalService {
                 .deadline(req.deadline())
                 .status("ACTIVE")
                 .build();
-
-        return goalRepository.save(goal);
+        goal = goalRepository.save(goal);
+        twinProjectionService.projectGoal(customer, goal);
+        return goal;
     }
 
     public Goal updateGoal(Customer customer, String goalId, GoalRequest req) {
         Goal goal = goalRepository.findByGoalIdAndCustomerId(goalId, customer.getId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Goal not found"));
-
         if (req.targetAmount() != null) goal.setTargetAmount(req.targetAmount());
         if (req.currentAmount() != null) goal.setCurrentAmount(req.currentAmount());
         if (req.monthlyContribution() != null) goal.setMonthlyContribution(req.monthlyContribution());
         if (req.deadline() != null) goal.setDeadline(req.deadline());
-
-        return goalRepository.save(goal);
+        goal = goalRepository.save(goal);
+        twinProjectionService.projectGoal(customer, goal);
+        return goal;
     }
 
     public Goal setStatus(Customer customer, String goalId, String status) {
         Goal goal = goalRepository.findByGoalIdAndCustomerId(goalId, customer.getId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Goal not found"));
-
         goal.setStatus(status);
-        if ("ACHIEVED".equals(status)) {
-            goal.setAchievedAt(java.time.LocalDateTime.now());
-        }
-        return goalRepository.save(goal);
+        if ("ACHIEVED".equals(status)) goal.setAchievedAt(java.time.LocalDateTime.now());
+        goal = goalRepository.save(goal);
+        twinProjectionService.projectGoal(customer, goal);
+        return goal;
     }
 }

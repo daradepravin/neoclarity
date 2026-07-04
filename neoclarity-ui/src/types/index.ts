@@ -109,6 +109,25 @@ export interface RecommendationResponse {
   createdAt: string;
 }
 
+// ── Sync ─────────────────────────────────────────────────────────────────────
+export type SyncConsequenceType = 'STEADY' | 'EMERGENCY_FUND_WARNING' | 'INCOME_DISRUPTION';
+
+export interface SyncBatchResult {
+  batchNumber: number;
+  batchLabel: string;
+  narrative: string;
+  transactionsAdded: number;
+  previousScore: number;
+  newScore: number;
+  scoreDelta: number;
+  consequenceType: SyncConsequenceType;
+  consequenceLabel: string;
+  consequenceIcon: string;
+  nextBatchPreview: string;
+  batchesRemaining: number;
+  analysisComplete: boolean;
+}
+
 // ── Life Events ───────────────────────────────────────────────────────────────
 export type EventType = 'VACATION' | 'HOME_RENO' | 'MEDICAL' | 'EDUCATION' | 'CELEBRATION' | 'CHILD_ACTIVITY';
 

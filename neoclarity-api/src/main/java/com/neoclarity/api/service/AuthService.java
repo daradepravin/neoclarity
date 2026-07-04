@@ -26,9 +26,10 @@ public class AuthService {
     private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final TwinProjectionService twinProjectionService;
 
-    @Value("${jwt.expiration-ms}")
-    private long jwtExpirationMs;
+    @Value("${jwt.expiration-ms:86400000}")
+    private long jwtExpirationMs = 86400000L;
 
     /**
      * Short-lived store: mfaToken -> customer email, issued after password check passes.
@@ -115,8 +116,8 @@ public class AuthService {
             customer.setConsentRevokedAt(LocalDateTime.now());
         }
         customerRepository.save(customer);
-        // NOTE: Section 6 — mirror consent_active to Neo4j Customer node via FastAPI/agent
-        // sync hook in Week 5. Agents check consent_active before every Twin read.
+        // Mirror consent_active to Neo4j Twin
+        twinProjectionService.updateConsentActive(customer, active);
     }
 
     private static String sha256(String input) {

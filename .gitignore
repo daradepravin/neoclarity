@@ -20,6 +20,16 @@ application-secret.yml
 *.key
 *.p12
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
 # IDEs
 .idea/
 *.iml
