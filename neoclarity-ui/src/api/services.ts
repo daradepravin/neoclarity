@@ -7,7 +7,6 @@ import type {
   ResilienceScoreResponse,
   RecommendationResponse,
   LifeEventResponse,
-  SyncBatchResult,
 } from '../types';
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -74,12 +73,6 @@ export const recommendationApi = {
 
   respond: (recommendationId: string, response: 'APPROVED' | 'DISMISSED' | 'REMIND_LATER') =>
     api.patch<RecommendationResponse>(`/recommendations/${recommendationId}`, { response }).then(r => r.data),
-};
-
-// ── Sync (demo control) ───────────────────────────────────────────────────────
-export const syncApi = {
-  triggerSync: () =>
-    api.post<SyncBatchResult>('/sync/accounts').then(r => r.data),
 };
 
 // ── Life Events ───────────────────────────────────────────────────────────────

@@ -33,7 +33,7 @@ export interface Recommendation {
   priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
   reason: string; recommendationText: string; expectedImpact: string
   confidence: number; requiresApproval: boolean
-  response: 'PENDING' | 'APPROVED' | 'DISMISSED' | 'REMIND_LATER'
+  response: 'PENDING' | 'APPROVED' | 'DISMISSED' | 'REMIND_LATER' | 'SUPERSEDED'
   createdAt: string
 }
 export interface LifeEvent {
@@ -119,6 +119,22 @@ export const lifeEventsApi = {
 }
 
 
+export interface SyncResult {
+  batchNumber: number
+  totalBatches: number
+  narrative: string
+  storyArc: string
+  transactionsAdded: number
+  hasMoreBatches: boolean
+  agentSessionId: string
+}
+
+export interface SyncStatus {
+  currentBatch: number
+  totalBatches: number
+  hasMore: boolean
+}
+
 export interface AccountTemplate {
   accountType: 'CHECKING' | 'SAVINGS' | 'CREDIT' | 'LOAN'
   displayName: string
@@ -140,6 +156,12 @@ export interface LinkResult {
   accountsLinked: number
   transactionsImported: number
   eventDetected: boolean
+}
+
+export const syncApi = {
+  sync: () => api.post<SyncResult>('/sync'),
+  reset: () => api.post<void>('/sync/reset'),
+  status: () => api.get<SyncStatus>('/sync/status'),
 }
 
 export const openBankingApi = {

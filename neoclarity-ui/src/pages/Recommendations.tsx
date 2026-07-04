@@ -7,8 +7,8 @@ import Spinner from '../components/Spinner'
 
 function priorityColor(p: string) { return p === 'HIGH' || p === 'CRITICAL' ? '#C0392B' : p === 'MEDIUM' ? '#C77700' : '#1F8A5A' }
 function priorityBg(p: string) { return p === 'HIGH' || p === 'CRITICAL' ? '#FEE2E2' : p === 'MEDIUM' ? '#FBF0DD' : '#E7F3EC' }
-function statusColor(s: string) { return s === 'APPROVED' ? '#1F8A5A' : s === 'DISMISSED' ? '#9AA3AD' : '#C77700' }
-function statusBg(s: string) { return s === 'APPROVED' ? '#E7F3EC' : s === 'DISMISSED' ? '#EEF0F3' : '#FBF0DD' }
+function statusColor(s: string) { return s === 'APPROVED' ? '#1F8A5A' : s === 'DISMISSED' || s === 'SUPERSEDED' ? '#9AA3AD' : '#C77700' }
+function statusBg(s: string) { return s === 'APPROVED' ? '#E7F3EC' : s === 'DISMISSED' || s === 'SUPERSEDED' ? '#EEF0F3' : '#FBF0DD' }
 
 export default function Recommendations() {
   const [recs, setRecs] = useState<Recommendation[]>([])
@@ -30,6 +30,7 @@ export default function Recommendations() {
 
   if (loading) return <Spinner />
 
+  const visibleRecs = recs.filter(r => r.response !== 'SUPERSEDED')
   const pending = recs.filter(r => r.response === 'PENDING' || r.response === 'REMIND_LATER').length
   const approved = recs.filter(r => r.response === 'APPROVED').length
   const dismissed = recs.filter(r => r.response === 'DISMISSED').length
@@ -47,7 +48,7 @@ export default function Recommendations() {
         ))}
       </div>
 
-      {recs.map(rec => (
+      {visibleRecs.map(rec => (
         <Card key={rec.recommendationId} style={{ border: expanded === rec.recommendationId ? '2px solid #1A6EBD' : '1px solid #E2E8F0' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', cursor: 'pointer' }}
             onClick={() => setExpanded(expanded === rec.recommendationId ? null : rec.recommendationId)}>

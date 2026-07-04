@@ -34,7 +34,8 @@ jwt:
 agent:
   base-url: ${AGENT_BASE_URL:http://localhost:8000}
   analyze-path: /api/agent/analyze
-  timeout-ms: ${AGENT_TIMEOUT_MS:10000}   # 10s — matches NFR Recommendation Generation < 10s
+  timeout-ms: ${AGENT_TIMEOUT_MS:12000}
+  shared-secret: ${AGENT_SHARED_SECRET:}
 
 # ── Neo4j AuraDB (Household Digital Twin projection) ─────────────────────────
 neo4j:

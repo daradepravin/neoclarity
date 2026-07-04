@@ -24,11 +24,9 @@ async def init_driver() -> AsyncDriver:
         auth=(settings.neo4j_username, settings.neo4j_password),
         max_connection_pool_size=20,
     )
-    try:
-        await _driver.verify_connectivity()
-        log.info("neo4j.connected", uri=settings.neo4j_uri)
-    except Exception as e:
-        log.warn("neo4j.deferred", uri=settings.neo4j_uri, reason=str(e))
+    # Verify connectivity
+    await _driver.verify_connectivity()
+    log.info("neo4j.connected", uri=settings.neo4j_uri)
     return _driver
 
 

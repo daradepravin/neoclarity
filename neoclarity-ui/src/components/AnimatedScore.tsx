@@ -20,6 +20,7 @@ export default function AnimatedScore({ score, previousScore, size = 130 }: Prop
       return
     }
 
+    // Animate number counting up or down
     setAnimating(true)
     const start = previousScore
     const end = score
@@ -29,6 +30,7 @@ export default function AnimatedScore({ score, previousScore, size = 130 }: Prop
     const tick = (now: number) => {
       const elapsed = now - startTime
       const progress = Math.min(elapsed / duration, 1)
+      // ease out cubic
       const eased = 1 - Math.pow(1 - progress, 3)
       setDisplayed(Math.round(start + (end - start) * eased))
       if (progress < 1) {
@@ -62,6 +64,7 @@ export default function AnimatedScore({ score, previousScore, size = 130 }: Prop
           <text x={size/2} y={size/2 + 14} textAnchor="middle" fontSize={size * 0.1} fill="#9AA3AD">/ 100</text>
         </svg>
 
+        {/* Delta badge — only shows when score moved */}
         {delta !== 0 && (
           <div style={{
             position: 'absolute', top: -6, right: -6,
@@ -69,6 +72,7 @@ export default function AnimatedScore({ score, previousScore, size = 130 }: Prop
             color: delta > 0 ? '#1F8A5A' : '#C0392B',
             fontSize: 11, fontWeight: 800, padding: '3px 7px', borderRadius: 99,
             border: `1.5px solid ${delta > 0 ? '#1F8A5A' : '#C0392B'}`,
+            animation: 'ncFade 0.3s ease',
           }}>
             {delta > 0 ? '+' : ''}{delta}
           </div>

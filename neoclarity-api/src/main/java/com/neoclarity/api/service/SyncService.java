@@ -12,208 +12,149 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
- * Demo sync control — applies scripted transaction batches in sequence to drive
- * the full intelligence chain: PG → Neo4j → agent → updated score + recommendations.
+ * Drives the Sync Accounts demo flow.
  *
- * Three batches tell a deliberate narrative arc:
- *   Batch 1: steady month      → mild positive
- *   Batch 2: emergency expenses → savings depleted, score drops
- *   Batch 3: paycheck delayed  → income stability crash, recommendations surface
+ * Serves scripted transaction batches in sequence (1 → 2 → 3 → wraps).
+ * Each sync:
+ *   1. Picks the next batch for this customer session
+ *   2. Maps transactions onto the customer's real account nodes
+ *   3. Persists to PostgreSQL (source of truth)
+ *   4. Projects new Transaction nodes into Neo4j Twin
+ *   5. Triggers FinancialAssessmentAgent re-run via AgentService
+ *   6. Returns the new score + narrative for the UI
+ *
+ * Batch state is per-customer in-memory — resets on restart.
+ * For a demo this is correct: each session gets a fresh narrative arc.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class SyncService {
 
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final TwinProjectionService twinProjectionService;
+    private final AgentService agentService;
 
-    private final ConcurrentHashMap<Long, Integer> batchCounters = new ConcurrentHashMap<>();
+    /** In-memory batch counter per customer. Resets on server restart. */
+    private final Map<String, Integer> batchState = new ConcurrentHashMap<>();
 
-    /** Reset the batch counter for this customer (demo restart). */
-    public void resetBatch(Long customerId) {
-        batchCounters.remove(customerId);
-        log.info("sync.batch_reset customer_id={}", customerId);
-    }
-
-    /** Returns the 1-indexed batch number that will run next (wraps after 3). */
-    public int nextBatchNumber(Long customerId) {
-        int idx = batchCounters.getOrDefault(customerId, 0) % BATCHES.size();
-        return BATCHES.get(idx).number();
-    }
-
-    // ── Internal data model ───────────────────────────────────────────────────
-
-    record SyncTxn(String amount, String merchantRaw, String merchantNorm,
-                   String category, String subcategory, boolean recurring,
-                   boolean income, String accountType, int daysAgo) {}
-
-    record BatchDef(
-        int number, String label, String narrative,
-        String consequenceType, String consequenceLabel, String consequenceIcon,
-        String nextBatchPreview,
-        List<SyncTxn> transactions,
-        double checkingDelta, double savingsDelta
-    ) {}
-
-    public record SyncSummary(
-        int batchNumber, String batchLabel, String narrative,
+    public record SyncResult(
+        int batchNumber,
+        int totalBatches,
+        String narrative,
+        String storyArc,
         int transactionsAdded,
-        String consequenceType, String consequenceLabel, String consequenceIcon,
-        String nextBatchPreview, int batchesRemaining
+        boolean hasMoreBatches,
+        String agentSessionId
     ) {}
-
-    // ── Scripted batches ──────────────────────────────────────────────────────
-
-    private static final List<BatchDef> BATCHES = List.of(
-
-        new BatchDef(1,
-            "Steady Month",
-            "Regular paycheck and monthly bills. Cash flow is positive. Automatic $300 savings contribution made.",
-            "STEADY",
-            "Emergency fund building steadily",
-            "📈",
-            "Next: An unexpected large expense will hit — prepare for a bigger swing.",
-            List.of(
-                new SyncTxn("+5200.00", "ADP Payroll Direct", "ADP PAYROLL",
-                    "INCOME",       "SALARY",        true,  true,  "CHECKING", 63),
-                new SyncTxn("-2150.00", "Chase Mortgage Auto", "CHASE MORTGAGE",
-                    "HOUSING",      "MORTGAGE",      true,  false, "CHECKING", 62),
-                new SyncTxn("-178.00",  "ConEd Electric Bill", "CONED ELECTRIC",
-                    "UTILITIES",    "ELECTRICITY",   true,  false, "CHECKING", 60),
-                new SyncTxn("-382.00",  "Whole Foods Market",  "WHOLE FOODS",
-                    "GROCERIES",    "SUPERMARKET",   false, false, "CHECKING", 58),
-                new SyncTxn("-162.00",  "Chipotle & Dining",   "DINING",
-                    "DINING",       "RESTAURANTS",   false, false, "CHECKING", 55),
-                new SyncTxn("-84.00",   "Netflix/Spotify/Disney","STREAMING",
-                    "ENTERTAINMENT","SUBSCRIPTIONS", true,  false, "CHECKING", 54),
-                new SyncTxn("+300.00",  "Auto-Savings Transfer","SAVINGS XFER",
-                    "TRANSFER",     "SAVINGS",       true,  true,  "SAVINGS",  63)
-            ),
-            +2244.0, +300.0
-        ),
-
-        new BatchDef(2,
-            "Emergency Expenses Hit",
-            "HVAC failed and an emergency vet visit hit the same week. Tapped $2,500 from emergency savings to cover it.",
-            "EMERGENCY_FUND_WARNING",
-            "Emergency fund: 0.4 months runway — critically low",
-            "⚠️",
-            "Next: Paycheck delay coming — reserves are nearly gone.",
-            List.of(
-                new SyncTxn("+5200.00", "ADP Payroll Direct",  "ADP PAYROLL",
-                    "INCOME",       "SALARY",        true,  true,  "CHECKING", 33),
-                new SyncTxn("-2150.00", "Chase Mortgage Auto",  "CHASE MORTGAGE",
-                    "HOUSING",      "MORTGAGE",      true,  false, "CHECKING", 32),
-                new SyncTxn("-3540.00", "ABC HVAC Services",    "HVAC REPAIR",
-                    "HOME_REPAIR",  "EMERGENCY",     false, false, "CHECKING", 29),
-                new SyncTxn("-1195.00", "Dr Paws Animal Hospital","EMERGENCY VET",
-                    "MEDICAL",      "VETERINARY",    false, false, "CHECKING", 27),
-                new SyncTxn("-178.00",  "ConEd Electric Bill",  "CONED ELECTRIC",
-                    "UTILITIES",    "ELECTRICITY",   true,  false, "CHECKING", 26),
-                new SyncTxn("-2500.00", "Emergency Savings Withdrawal","SAVINGS XFER",
-                    "TRANSFER",     "EMERGENCY",     false, false, "SAVINGS",  30)
-            ),
-            -1863.0, -2500.0
-        ),
-
-        new BatchDef(3,
-            "Paycheck Delayed — Reserves Gone",
-            "Paycheck delayed by 2 weeks. Bills still auto-paid. Annual insurance premium hit with near-zero savings left.",
-            "INCOME_DISRUPTION",
-            "Income disruption — $0 income this period. Resilience critically low.",
-            "🚨",
-            "All 3 demo cycles complete — click Sync again to restart the arc.",
-            List.of(
-                new SyncTxn("-2150.00", "Chase Mortgage Auto",  "CHASE MORTGAGE",
-                    "HOUSING",      "MORTGAGE",      true,  false, "CHECKING", 5),
-                new SyncTxn("-840.00",  "State Farm Auto Ins",  "STATE FARM",
-                    "INSURANCE",    "AUTO",          false, false, "CHECKING", 4),
-                new SyncTxn("-178.00",  "ConEd Electric Bill",  "CONED ELECTRIC",
-                    "UTILITIES",    "ELECTRICITY",   true,  false, "CHECKING", 3),
-                new SyncTxn("-285.00",  "Target Groceries",     "TARGET",
-                    "GROCERIES",    "SUPERMARKET",   false, false, "CHECKING", 2),
-                new SyncTxn("-420.00",  "Chase Card Minimum",   "CHASE CREDIT",
-                    "DEBT",         "CREDIT_CARD",   true,  false, "CHECKING", 1)
-            ),
-            -3873.0, 0.0
-        )
-    );
-
-    // ── Public entry point ────────────────────────────────────────────────────
 
     @Transactional
-    public SyncSummary applyNextBatch(Customer customer) {
-        int batchIdx = batchCounters.getOrDefault(customer.getId(), 0) % BATCHES.size();
-        batchCounters.put(customer.getId(), batchIdx + 1);
+    public SyncResult sync(Customer customer) {
+        String hid = customer.getHashedId();
 
-        BatchDef batch = BATCHES.get(batchIdx);
-        log.info("sync.apply_batch hid={} batch={}", customer.getHashedId().substring(0, 8), batch.number());
+        // Determine which batch is next (1-indexed, wraps after last)
+        int nextBatch = batchState.compute(hid, (k, current) -> {
+            if (current == null || current >= SyncBatchFixtures.totalBatches()) return 1;
+            return current + 1;
+        });
 
-        Map<String, Account> byType = accountRepository.findByCustomerId(customer.getId())
-            .stream()
-            .collect(Collectors.toMap(Account::getAccountType, a -> a, (a, b) -> a));
+        SyncBatchFixtures.Batch batch = SyncBatchFixtures.getBatch(nextBatch);
+        log.info("sync.start hid={} batch={}", hid.substring(0, 8), nextBatch);
 
-        Account checking = byType.get("CHECKING");
-        Account savings  = byType.get("SAVINGS");
+        // Get customer's accounts to map transactions onto
+        List<Account> accounts = accountRepository.findByCustomerIdAndActiveTrue(customer.getId());
+        if (accounts.isEmpty()) {
+            log.warn("sync.no_accounts hid={}", hid.substring(0, 8));
+            return new SyncResult(nextBatch, SyncBatchFixtures.totalBatches(),
+                "No active accounts found. Connect an account first.",
+                "", 0, false, null);
+        }
 
-        int txnCount = 0;
-        for (SyncTxn txn : batch.transactions()) {
-            Account account = "SAVINGS".equals(txn.accountType()) ? savings : checking;
-            if (account == null) {
-                log.warn("sync.skip_txn no_account type={}", txn.accountType());
-                continue;
-            }
-            transactionRepository.save(Transaction.builder()
+        // Map account types to actual account entities
+        Account checkingAccount = accounts.stream()
+            .filter(a -> "CHECKING".equals(a.getAccountType())).findFirst().orElse(accounts.get(0));
+        Account savingsAccount = accounts.stream()
+            .filter(a -> "SAVINGS".equals(a.getAccountType())).findFirst().orElse(checkingAccount);
+        Account creditAccount = accounts.stream()
+            .filter(a -> "CREDIT".equals(a.getAccountType())).findFirst().orElse(checkingAccount);
+
+        // Persist batch transactions to PostgreSQL
+        List<Transaction> saved = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+
+        for (SyncBatchFixtures.Transaction fixture : batch.transactions()) {
+            Account targetAccount = switch (fixture.accountType()) {
+                case "SAVINGS" -> savingsAccount;
+                case "CREDIT" -> creditAccount;
+                default -> checkingAccount;
+            };
+
+            Transaction txn = Transaction.builder()
                 .transactionId(UUID.randomUUID().toString())
-                .account(account)
-                .amount(new BigDecimal(txn.amount()))
-                .merchantRaw(txn.merchantRaw())
-                .merchantNormalised(txn.merchantNorm())
-                .category(txn.category())
-                .subcategory(txn.subcategory())
-                .transactionDate(LocalDate.now().minusDays(txn.daysAgo()))
-                .recurring(txn.recurring())
-                .incomeFlag(txn.income())
+                .account(targetAccount)
+                .amount(BigDecimal.valueOf(fixture.amount()))
+                .merchantRaw(fixture.merchantRaw())
+                .merchantNormalised(fixture.merchantNormalised())
+                .category(fixture.category())
+                .subcategory(fixture.subcategory())
+                .transactionDate(today.minusDays(fixture.daysAgo()))
+                .recurring(fixture.recurring())
+                .incomeFlag(fixture.income())
+                .confidence(BigDecimal.valueOf(0.95))
                 .neo4jSynced(false)
-                .build());
-            txnCount++;
+                .build();
+
+            saved.add(transactionRepository.save(txn));
         }
 
-        // Flush balance changes to PG and sync transactions + balance to Neo4j
-        if (checking != null) {
-            if (batch.checkingDelta() != 0) {
-                checking.setBalance(checking.getBalance().add(BigDecimal.valueOf(batch.checkingDelta())));
-                accountRepository.save(checking);
-                twinProjectionService.updateAccountBalance(checking.getAccountId(), checking.getBalance().doubleValue());
-            }
-            twinProjectionService.syncTransactionsNow(checking);
-        }
-        if (savings != null) {
-            if (batch.savingsDelta() != 0) {
-                savings.setBalance(savings.getBalance().add(BigDecimal.valueOf(batch.savingsDelta())));
-                accountRepository.save(savings);
-                twinProjectionService.updateAccountBalance(savings.getAccountId(), savings.getBalance().doubleValue());
-            }
-            if (batch.savingsDelta() != 0) {
-                twinProjectionService.syncTransactionsNow(savings);
-            }
+        log.info("sync.pg_saved count={} batch={}", saved.size(), nextBatch);
+
+        // Project new transactions into Neo4j Twin (async)
+        for (Account account : accounts) {
+            twinProjectionService.projectTransactions(account);
         }
 
-        int remaining = BATCHES.size() - batchIdx - 1;
-        return new SyncSummary(
-            batch.number(), batch.label(), batch.narrative(),
-            txnCount,
-            batch.consequenceType(), batch.consequenceLabel(), batch.consequenceIcon(),
-            batch.nextBatchPreview(), remaining
+        // Trigger agent re-run — this is where the score moves
+        // Fire and forget — the UI polls for the result via existing endpoints
+        String[] sessionId = {UUID.randomUUID().toString()};
+        agentService.analyze(hid, "REFRESH")
+            .doOnSuccess(result -> {
+                if (result != null) {
+                    agentService.persistAnalysisResults(hid, result);
+                    log.info("sync.agent_complete batch={} session={}", nextBatch, sessionId[0]);
+                }
+            })
+            .doOnError(e -> log.warn("sync.agent_error batch={} err={}", nextBatch, e.getMessage()))
+            .subscribe();
+
+        boolean hasMore = nextBatch < SyncBatchFixtures.totalBatches();
+
+        return new SyncResult(
+            nextBatch,
+            SyncBatchFixtures.totalBatches(),
+            batch.narrative(),
+            batch.storyArc(),
+            saved.size(),
+            hasMore,
+            sessionId[0]
         );
+    }
+
+    /** Reset the batch counter for a customer (useful for demo reset). */
+    public void resetBatch(String hashedId) {
+        batchState.remove(hashedId);
+        log.info("sync.batch_reset hid={}", hashedId.substring(0, 8));
+    }
+
+    public int currentBatch(String hashedId) {
+        return batchState.getOrDefault(hashedId, 0);
     }
 }

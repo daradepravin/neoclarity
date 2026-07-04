@@ -163,7 +163,10 @@ public class TwinProjectionService {
      */
     @Async
     public void projectTransactions(Account account) {
-        List<Transaction> unsynced = transactionRepository.findByAccountIdAndNeo4jSyncedFalse(account.getId());
+        List<Transaction> unsynced = transactionRepository.findByNeo4jSyncedFalse()
+                .stream()
+                .filter(t -> t.getAccount().getId().equals(account.getId()))
+                .toList();
 
         if (unsynced.isEmpty()) return;
 
@@ -199,7 +202,7 @@ public class TwinProjectionService {
                             "recurring",   t.isRecurring(),
                             "income",      t.isIncomeFlag(),
                             "confidence",  t.getConfidence() != null ? t.getConfidence().doubleValue() : 1.0,
-                            "account_id",  account.getAccountId()
+                            "account_id",  t.getAccount().getAccountId()
                         )
                     );
 
@@ -256,135 +259,6 @@ public class TwinProjectionService {
         }
     }
 
-    // ── SYNC HELPERS (synchronous — used by SyncController) ──────────────────
-
-    /**
-     * Synchronous (non-@Async) transaction sync used by the demo sync endpoint.
-     * Picks up all neo4j_synced=false transactions for the account and writes them.
-     */
-    public void syncTransactionsNow(Account account) {
-        List<Transaction> unsynced = transactionRepository.findByAccountIdAndNeo4jSyncedFalse(account.getId());
-        if (unsynced.isEmpty()) return;
-
-        log.info("twin.sync_now count={} account_id={}", unsynced.size(), account.getAccountId().substring(0, 8));
-        try (Session session = neo4jDriver.session()) {
-            for (Transaction t : unsynced) {
-                try {
-                    session.run("""
-                        MERGE (t:Transaction {transaction_id: $txn_id})
-                        SET t.amount             = $amount,
-                            t.merchant_raw        = $merchant_raw,
-                            t.merchant_normalised = $merchant_norm,
-                            t.category            = $category,
-                            t.subcategory         = $subcategory,
-                            t.transaction_date    = date($date),
-                            t.is_recurring        = $recurring,
-                            t.income_flag         = $income,
-                            t.confidence          = $confidence
-                        WITH t
-                        MATCH (a:Account {account_id: $account_id})
-                        MERGE (a)-[:CONTAINS]->(t)
-                        """,
-                        Values.parameters(
-                            "txn_id",       t.getTransactionId(),
-                            "amount",       t.getAmount().doubleValue(),
-                            "merchant_raw", t.getMerchantRaw() != null ? t.getMerchantRaw() : "",
-                            "merchant_norm", t.getMerchantNormalised() != null ? t.getMerchantNormalised() : "",
-                            "category",     t.getCategory() != null ? t.getCategory() : "Uncategorised",
-                            "subcategory",  t.getSubcategory() != null ? t.getSubcategory() : "",
-                            "date",         t.getTransactionDate().toString(),
-                            "recurring",    t.isRecurring(),
-                            "income",       t.isIncomeFlag(),
-                            "confidence",   t.getConfidence() != null ? t.getConfidence().doubleValue() : 1.0,
-                            "account_id",   account.getAccountId()
-                        )
-                    );
-                    t.setNeo4jSynced(true);
-                    transactionRepository.save(t);
-                } catch (Exception e) {
-                    log.warn("twin.sync_now_txn_error txn_id={} err={}", t.getTransactionId(), e.getMessage());
-                }
-            }
-        }
-    }
-
-    /** Update the balance field on an Account node in Neo4j. */
-    public void updateAccountBalance(String accountId, double newBalance) {
-        try (Session session = neo4jDriver.session()) {
-            session.run("""
-                MATCH (a:Account {account_id: $account_id})
-                SET a.balance = $balance, a.last_refreshed_at = $refreshed
-                """,
-                Values.parameters("account_id", accountId, "balance", newBalance,
-                    "refreshed", java.time.LocalDateTime.now().toString())
-            );
-            log.debug("twin.balance_updated account_id={} balance={}", accountId.substring(0, 8), newBalance);
-        } catch (Exception e) {
-            log.error("twin.balance_update_error err={}", e.getMessage());
-        }
-    }
-
-    /**
-     * Seeds the two-member household into Neo4j: spouse HouseholdMember node,
-     * their Fidelity savings account, and the shared mortgage liability.
-     * Safe to call on every startup — all writes use MERGE.
-     */
-    public void projectHouseholdMembers(Customer customer) {
-        log.info("twin.project_household hid={}", customer.getHashedId().substring(0, 8));
-        try (Session session = neo4jDriver.session()) {
-            // Spouse member + their savings account
-            session.run("""
-                MATCH (c:Customer {hashed_id: $hid})
-                MERGE (spouse:HouseholdMember {member_id: $member_id})
-                SET spouse.name = 'Alex Demo', spouse.role = 'SPOUSE'
-                MERGE (c)-[:HAS_HOUSEHOLD_MEMBER {since: date('2018-06-15')}]->(spouse)
-                WITH spouse
-                MERGE (sa:Account {account_id: $savings_id})
-                SET sa.institution   = 'Fidelity',
-                    sa.account_type  = 'SAVINGS',
-                    sa.balance       = 12500.0,
-                    sa.is_active     = true,
-                    sa.label         = 'Spouse Retirement Savings'
-                MERGE (spouse)-[:HAS_ACCOUNT]->(sa)
-                """,
-                Values.parameters(
-                    "hid",       customer.getHashedId(),
-                    "member_id", "spouse-" + customer.getHashedId().substring(0, 8),
-                    "savings_id","fidelity-" + customer.getHashedId().substring(0, 8)
-                )
-            );
-            // Shared mortgage liability
-            session.run("""
-                MATCH (c:Customer {hashed_id: $hid})
-                MERGE (m:Liability {liability_id: $mortgage_id})
-                SET m.type             = 'MORTGAGE',
-                    m.institution      = 'Chase',
-                    m.balance          = 312000.0,
-                    m.monthly_payment  = 2150.0,
-                    m.interest_rate    = 6.875,
-                    m.term_months      = 360,
-                    m.start_date       = date('2019-06-01')
-                MERGE (c)-[:HAS_LIABILITY {primary: true}]->(m)
-                """,
-                Values.parameters(
-                    "hid",        customer.getHashedId(),
-                    "mortgage_id","mortgage-" + customer.getHashedId().substring(0, 8)
-                )
-            );
-            // Shared education goal node (mirrors the COLLEGE goal)
-            session.run("""
-                MATCH (c:Customer {hashed_id: $hid})-[:HAS_GOAL]->(g:Goal {goal_type: 'COLLEGE'})
-                MATCH (c)-[:HAS_HOUSEHOLD_MEMBER]->(spouse:HouseholdMember)
-                MERGE (spouse)-[:CO_OWNS]->(g)
-                """,
-                Values.parameters("hid", customer.getHashedId())
-            );
-            log.info("twin.household_done hid={}", customer.getHashedId().substring(0, 8));
-        } catch (Exception e) {
-            log.error("twin.household_error err={}", e.getMessage());
-        }
-    }
-
     // ── FULL PROJECTION (on first account link) ───────────────────────────────
 
     /**
@@ -410,5 +284,63 @@ public class TwinProjectionService {
         }
 
         log.info("twin.full_projection_complete hid={}", customer.getHashedId().substring(0, 8));
+    }
+
+    /**
+     * Seeds the two-member household into Neo4j: spouse HouseholdMember node,
+     * their Fidelity savings account, and the shared mortgage liability.
+     * Safe to call on every startup — all writes use MERGE.
+     */
+    public void projectHouseholdMembers(Customer customer) {
+        log.info("twin.project_household hid={}", customer.getHashedId().substring(0, 8));
+        try (Session session = neo4jDriver.session()) {
+            session.run("""
+                MATCH (c:Customer {hashed_id: $hid})
+                MERGE (spouse:HouseholdMember {member_id: $member_id})
+                SET spouse.name = 'Alex Demo', spouse.role = 'SPOUSE'
+                MERGE (c)-[:HAS_HOUSEHOLD_MEMBER {since: date('2018-06-15')}]->(spouse)
+                WITH spouse
+                MERGE (sa:Account {account_id: $savings_id})
+                SET sa.institution   = 'Fidelity',
+                    sa.account_type  = 'SAVINGS',
+                    sa.balance       = 12500.0,
+                    sa.is_active     = true,
+                    sa.label         = 'Spouse Retirement Savings'
+                MERGE (spouse)-[:HAS_ACCOUNT]->(sa)
+                """,
+                Values.parameters(
+                    "hid",       customer.getHashedId(),
+                    "member_id", "spouse-" + customer.getHashedId().substring(0, 8),
+                    "savings_id","fidelity-" + customer.getHashedId().substring(0, 8)
+                )
+            );
+            session.run("""
+                MATCH (c:Customer {hashed_id: $hid})
+                MERGE (m:Liability {liability_id: $mortgage_id})
+                SET m.type             = 'MORTGAGE',
+                    m.institution      = 'Chase',
+                    m.balance          = 312000.0,
+                    m.monthly_payment  = 2150.0,
+                    m.interest_rate    = 6.875,
+                    m.term_months      = 360,
+                    m.start_date       = date('2019-06-01')
+                MERGE (c)-[:HAS_LIABILITY {primary: true}]->(m)
+                """,
+                Values.parameters(
+                    "hid",        customer.getHashedId(),
+                    "mortgage_id","mortgage-" + customer.getHashedId().substring(0, 8)
+                )
+            );
+            session.run("""
+                MATCH (c:Customer {hashed_id: $hid})-[:HAS_GOAL]->(g:Goal {goal_type: 'COLLEGE'})
+                MATCH (c)-[:HAS_HOUSEHOLD_MEMBER]->(spouse:HouseholdMember)
+                MERGE (spouse)-[:CO_OWNS]->(g)
+                """,
+                Values.parameters("hid", customer.getHashedId())
+            );
+            log.info("twin.household_done hid={}", customer.getHashedId().substring(0, 8));
+        } catch (Exception e) {
+            log.error("twin.household_error err={}", e.getMessage());
+        }
     }
 }

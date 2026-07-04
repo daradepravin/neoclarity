@@ -35,7 +35,7 @@ def _compute_emergency_fund_score(transactions: list[dict], accounts: list[dict]
     Emergency fund score = (savings balance / monthly_expenses) / 6 months * 100
     Capped at 100.
     """
-    savings = sum(a.get("balance") or 0 for a in accounts if a.get("account_type") in ("SAVINGS",))
+    savings = sum(a["balance"] for a in accounts if a.get("account_type") in ("SAVINGS",))
     monthly_expenses = _monthly_expenses(transactions)
     if monthly_expenses <= 0:
         return 50  # insufficient data — neutral
@@ -48,8 +48,8 @@ def _compute_cash_flow_score(transactions: list[dict]) -> int:
     Cash flow score: income vs expense ratio over 90 days.
     > 1.2 income/expense → 100; < 0.8 → 0; linear between.
     """
-    income = sum(abs(t.get("amount") or 0) for t in transactions if t.get("income_flag"))
-    expenses = sum(abs(t.get("amount") or 0) for t in transactions if not t.get("income_flag") and (t.get("amount") or 0) < 0)
+    income = sum(abs(t["amount"]) for t in transactions if t.get("income_flag"))
+    expenses = sum(abs(t["amount"]) for t in transactions if not t.get("income_flag") and t["amount"] < 0)
     if expenses <= 0:
         return 70
     ratio = income / expenses
@@ -65,9 +65,9 @@ def _compute_debt_burden_score(accounts: list[dict], transactions: list[dict]) -
     Debt burden score: higher is better (lower debt).
     Simple proxy: credit balance / total assets. Lower ratio = higher score.
     """
-    credit_debt = sum(abs(a.get("balance") or 0) for a in accounts
-                      if a.get("account_type") == "CREDIT" and (a.get("balance") or 0) < 0)
-    total_assets = sum(a.get("balance") or 0 for a in accounts if (a.get("balance") or 0) > 0)
+    credit_debt = sum(abs(a["balance"]) for a in accounts
+                      if a.get("account_type") == "CREDIT" and a.get("balance", 0) < 0)
+    total_assets = sum(a["balance"] for a in accounts if a.get("balance", 0) > 0)
     if total_assets <= 0:
         return 50
     debt_ratio = credit_debt / total_assets
@@ -92,7 +92,7 @@ def _compute_income_stability_score(transactions: list[dict]) -> int:
             try:
                 d = date.fromisoformat(t["date"][:10])
                 key = f"{d.year}-{d.month:02d}"
-                monthly_income[key] += abs(t.get("amount") or 0)
+                monthly_income[key] += abs(t["amount"])
             except Exception:
                 pass
 
@@ -120,8 +120,8 @@ def _compute_goal_readiness_score(goals: list[dict]) -> int:
         return 30
     progress_pcts = []
     for g in goals:
-        target = g.get("target") or 0
-        current = g.get("current") or 0
+        target = g.get("target", 0)
+        current = g.get("current", 0)
         if target > 0:
             progress_pcts.append(min(100, (current / target) * 100))
     if not progress_pcts:
@@ -130,8 +130,8 @@ def _compute_goal_readiness_score(goals: list[dict]) -> int:
 
 
 def _monthly_expenses(transactions: list[dict]) -> float:
-    total = sum(abs(t.get("amount") or 0) for t in transactions
-                if not t.get("income_flag") and (t.get("amount") or 0) < 0)
+    total = sum(abs(t["amount"]) for t in transactions
+                if not t.get("income_flag") and t.get("amount", 0) < 0)
     return total / 3.0  # 90-day window → 3 months
 
 
@@ -265,6 +265,14 @@ async def run_financial_assessment_agent(
     settings = get_settings()
 
     try:
+        # Load snapshot if not already loaded
+        if not state.snapshot:
+            records = await run_read(session, CUSTOMER_SNAPSHOT, hid=state.customer_hid)
+            if not records or not records[0].get("consent_active"):
+                state.errors.append("FinancialAssessmentAgent: consent not active or customer not found")
+                return state
+            state.snapshot = records[0]
+
         # Compute score
         score = compute_score(state.snapshot)
         state.resilience_score = score

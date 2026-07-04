@@ -116,6 +116,36 @@ Respond with ONLY the event label (max 5 words). No quotes, no punctuation at en
 
 # ── AGENT ENTRY POINT ─────────────────────────────────────────────────────────
 
+def _merchant_quality(transactions: list[dict]) -> float:
+    """
+    Estimate merchant-data quality for a cluster (0.7–1.0 multiplier).
+
+    Card transaction descriptors are notoriously unreliable — a gas station
+    in Montana can settle through a parent entity in North Dakota, aggregators
+    inject their own strings, etc. When merchant_normalised is missing or looks
+    like a raw descriptor (digits, processor prefixes), we trust the event
+    label less. This never changes the Clarity Score — only event confidence.
+
+    Returns a multiplier: 1.0 = clean merchants, 0.7 = mostly unusable.
+    """
+    if not transactions:
+        return 1.0
+    good = 0
+    for t in transactions:
+        m = (t.get("merchant") or "").strip()
+        # Heuristics for a "clean" normalised merchant name
+        looks_clean = (
+            len(m) >= 3
+            and not m.replace(" ", "").isdigit()
+            and not any(p in m.upper() for p in ("SQ *", "TST*", "*ORDER", "POS ", "XX"))
+        )
+        if looks_clean:
+            good += 1
+    ratio = good / len(transactions)
+    # Map ratio [0,1] → multiplier [0.7,1.0]
+    return round(0.7 + 0.3 * ratio, 3)
+
+
 async def run_event_intelligence_agent(
     state: AgentState,
     session: AsyncSession,
@@ -190,7 +220,15 @@ async def run_event_intelligence_agent(
             # Confidence: vector search gives higher confidence than rules
             confidence = 0.87 if cluster.get("source") == "vector" else 0.72
 
+            # Merchant-quality degradation: card descriptors are unreliable
+            # (franchisor HQ vs store location, processor strings, etc.).
+            # If the cluster's merchants are mostly unnormalised/low-quality,
+            # lower confidence — vague merchant data means a vaguer event.
+            merchant_quality = _merchant_quality(cluster_txns)
+            confidence = round(confidence * merchant_quality, 2)
+
             if confidence < settings.confidence_present_caution:
+                log.info("event_agent.suppressed_low_merchant_quality quality=%.2f", merchant_quality)
                 continue
 
             label = await _generate_event_label(event_type, cluster_txns, anthropic_client)

@@ -189,26 +189,27 @@ RETURN rs.score_id AS created_score_id
 
 WRITE_RECOMMENDATION = """
 MATCH (c:Customer {hashed_id: $hid})
-MERGE (r:Recommendation {recommendation_id: $recommendation_id})
-ON CREATE SET
-  r.agent               = $agent,
-  r.priority            = $priority,
-  r.reason              = $reason,
-  r.recommendation_text = $recommendation_text,
-  r.expected_impact     = $expected_impact,
-  r.confidence          = $confidence,
-  r.requires_approval   = $requires_approval,
-  r.session_id          = $session_id,
-  r.created_at          = datetime(),
-  r.pg_recommendation_id = $pg_recommendation_id
-MERGE (c)-[:RECEIVED]->(r)
-ON CREATE SET r.response = 'PENDING'
+CREATE (r:Recommendation {
+  recommendation_id:   $recommendation_id,
+  agent:               $agent,
+  priority:            $priority,
+  reason:              $reason,
+  recommendation_text: $recommendation_text,
+  expected_impact:     $expected_impact,
+  confidence:          $confidence,
+  requires_approval:   $requires_approval,
+  session_id:          $session_id,
+  created_at:          datetime(),
+  pg_recommendation_id: $pg_recommendation_id
+})
+CREATE (c)-[:RECEIVED {response: 'PENDING', responded_at: null}]->(r)
 
 WITH r
-CALL (r) {
+CALL {
+  WITH r
   MATCH (g:Goal {goal_id: $goal_id})
   WHERE $goal_id IS NOT NULL
-  MERGE (r)-[:GOAL_LINKED]->(g)
+  CREATE (r)-[:GOAL_LINKED]->(g)
 }
 
 RETURN r.recommendation_id AS created_rec_id

@@ -78,18 +78,23 @@ public final class SyncBatchFixtures {
             "Unexpected expense detected — HVAC emergency repair",
             "Emergency fund runway shrinks. Score drops. Household absorbing a financial shock.",
             List.of(
+                // The shock: HVAC emergency repair
                 new Transaction("AIRE SERV HVAC #441", "Aire Serv HVAC", "Home Maintenance", "Emergency Repair", -3200.00, "CREDIT", false, false, 10),
+                // Supporting spend — life continued around the shock
                 new Transaction("TARGET T-2284", "Target", "Shopping", "Retail", -187.43, "CHECKING", false, false, 20),
                 new Transaction("WHOLEFDS #4521", "Whole Foods", "Groceries", "Supermarket", -156.20, "CHECKING", false, false, 6),
                 new Transaction("SHELL OIL 5567", "Shell", "Transport", "Fuel", -71.00, "CHECKING", false, false, 16),
                 new Transaction("NETFLIX.COM", "Netflix", "Subscriptions", "Streaming", -15.49, "CHECKING", true, false, 20),
                 new Transaction("PG&E ENERGY", "PG&E", "Utilities", "Electric", -198.00, "CHECKING", true, false, 18),
                 new Transaction("COMCAST CABLE", "Comcast", "Utilities", "Internet", -89.99, "CHECKING", true, false, 18),
+                // Dining up — stress spending pattern
                 new Transaction("DOORDASH*ORDER", "DoorDash", "Dining", "Delivery", -67.80, "CREDIT", false, false, 9),
                 new Transaction("DOORDASH*ORDER", "DoorDash", "Dining", "Delivery", -54.20, "CREDIT", false, false, 5),
                 new Transaction("CHIPOTLE 2841", "Chipotle", "Dining", "Fast Food", -41.60, "CHECKING", false, false, 12),
+                // Income present but credit balance rising
                 new Transaction("PAYROLL DIRECT DEP", "Employer Payroll", "Income", "Salary", 3100.00, "CHECKING", true, true, 14),
                 new Transaction("PAYROLL DIRECT DEP", "Employer Payroll", "Income", "Salary", 3100.00, "CHECKING", true, true, 28),
+                // No savings transfer this month — couldn't afford it
                 new Transaction("AMAZON.COM*RT4", "Amazon", "Shopping", "Online", -243.00, "CREDIT", false, false, 7)
             )
         ),
@@ -99,16 +104,24 @@ public final class SyncBatchFixtures {
             "Income gap detected — salary deposit delayed this cycle",
             "Income stability collapses. Resilience drops further. Emergency action recommended.",
             List.of(
+                // Only partial income — one paycheck missing
                 new Transaction("PAYROLL DIRECT DEP", "Employer Payroll", "Income", "Salary", 3100.00, "CHECKING", true, true, 28),
+                // Second paycheck missing — this is the trigger
+                // (no second salary transaction this cycle)
+                // Bills still going out
                 new Transaction("WHOLEFDS #4521", "Whole Foods", "Groceries", "Supermarket", -134.50, "CHECKING", false, false, 4),
                 new Transaction("PG&E ENERGY", "PG&E", "Utilities", "Electric", -162.00, "CHECKING", true, false, 18),
                 new Transaction("COMCAST CABLE", "Comcast", "Utilities", "Internet", -89.99, "CHECKING", true, false, 18),
                 new Transaction("NETFLIX.COM", "Netflix", "Subscriptions", "Streaming", -15.49, "CHECKING", true, false, 20),
                 new Transaction("SPOTIFY USA", "Spotify", "Subscriptions", "Streaming", -11.99, "CHECKING", true, false, 20),
+                // Mortgage payment still hits
                 new Transaction("WELLS FARGO MORTGAGE", "Wells Fargo Mortgage", "Housing", "Mortgage", -2340.00, "CHECKING", true, false, 1),
+                // Credit card minimum payment — debt pressure
                 new Transaction("CHASE AUTOPAY", "Chase Credit Card", "Debt", "Credit Card Payment", -250.00, "CHECKING", true, false, 8),
+                // Small discretionary — household still functioning
                 new Transaction("SHELL OIL 5567", "Shell", "Transport", "Fuel", -55.00, "CHECKING", false, false, 12),
                 new Transaction("STARBUCKS #0823", "Starbucks", "Dining", "Coffee", -7.80, "CHECKING", false, false, 3),
+                // Savings transfer cancelled — can't afford it
                 new Transaction("CVS PHARMACY 4421", "CVS", "Healthcare", "Pharmacy", -43.20, "CHECKING", false, false, 6)
             )
         )

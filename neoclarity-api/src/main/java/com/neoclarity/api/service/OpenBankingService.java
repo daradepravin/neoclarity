@@ -5,7 +5,6 @@ import com.neoclarity.api.model.Account;
 import com.neoclarity.api.model.Customer;
 import com.neoclarity.api.repository.AccountRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,13 +18,11 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class OpenBankingService {
 
     private final AccountRepository accountRepository;
     private final MockTransactionGenerator transactionGenerator;
     private final TwinProjectionService twinProjectionService;
-    private final AgentService agentService;
 
     /** Provider catalog — the institutions a customer can connect. */
     public List<OpenBankingCatalog.Institution> getInstitutions() {
@@ -101,15 +98,6 @@ public class OpenBankingService {
         // The @Transactional boundary above ensures PG is committed before Neo4j reads.
         final List<Account> accountsForProjection = linkedAccounts;
         twinProjectionService.projectFullTwin(customer, accountsForProjection);
-
-        // Trigger agent analysis asynchronously after Twin is projected.
-        // subscribeOn ensures this doesn't block the HTTP response.
-        agentService.analyze(customer.getHashedId(), "ACCOUNT_LINK")
-            .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-            .subscribe(
-                result -> log.info("agent.link_analysis_complete hid={}", customer.getHashedId().substring(0, 8)),
-                error  -> log.warn("agent.link_analysis_error err={}", error.getMessage())
-            );
 
         return new LinkResult(inst.name(), accountsLinked, transactionsImported, yellowstoneInjected);
     }

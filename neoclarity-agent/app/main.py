@@ -4,11 +4,15 @@ NeoClarity Agent Layer — FastAPI application
 Single endpoint: POST /api/agent/analyze
 Called by Spring Boot after account linking or on-demand refresh.
 Returns the frozen architecture AnalyzeResponse contract.
+
+Auth: requires X-Agent-Secret header matching AGENT_SHARED_SECRET env var.
+Only Spring Boot should hold this secret — the agent layer is an internal
+service, never exposed to browsers.
 """
 
 import structlog
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from anthropic import AsyncAnthropic
 
@@ -22,6 +26,15 @@ log = structlog.get_logger(__name__)
 
 # Module-level Anthropic client — one instance shared across requests
 _anthropic_client: AsyncAnthropic | None = None
+
+
+async def verify_agent_secret(x_agent_secret: str | None = Header(default=None)):
+    """Shared-secret check between Spring Boot and the agent layer."""
+    settings = get_settings()
+    expected = settings.agent_shared_secret
+    if expected and x_agent_secret != expected:
+        log.warning("auth.rejected_missing_or_bad_secret")
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Agent-Secret header")
 
 
 @asynccontextmanager
@@ -80,7 +93,10 @@ async def health_neo4j():
 # ── CORE ENDPOINT ─────────────────────────────────────────────────────────────
 
 @app.post("/api/agent/analyze", response_model=AnalyzeResponse)
-async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+async def analyze(
+    request: AnalyzeRequest,
+    _auth: None = Depends(verify_agent_secret),
+) -> AnalyzeResponse:
     """
     Main analysis endpoint — called by Spring Boot.
 

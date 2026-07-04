@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
 
+    # Shared secret between Spring Boot and the agent layer.
+    # If empty, auth is disabled (local dev convenience). Set in production.
+    agent_shared_secret: str = ""
+
     # ── Confidence thresholds (frozen architecture AI governance) ───────────
     confidence_present_normally: float = 0.90   # >= present normally
     confidence_present_caution: float = 0.70    # >= present with caution label
