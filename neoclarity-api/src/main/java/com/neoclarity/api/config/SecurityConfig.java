@@ -34,7 +34,9 @@ public class SecurityConfig {
             "/api/auth/login",
             "/api/auth/verify-mfa",
             "/actuator/health",
-            "/error"
+            "/actuator/info",
+            "/error",
+            "/actuator/**"
     };
 
     @Bean
