@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { dashboardApi, accountsApi, recommendationsApi, lifeEventsApi, goalsApi,
          syncApi, ResilienceScore, Account, Recommendation, LifeEvent, Goal, SyncResult } from '../api/client'
 import { useAuth } from '../context/AuthContext'
@@ -26,6 +26,9 @@ export default function Dashboard() {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [currentBatch, setCurrentBatch] = useState(0)
   const [polling, setPolling] = useState(false)
+  const pollActive = useRef(false)
+
+  useEffect(() => { return () => { pollActive.current = false } }, [])
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -55,28 +58,30 @@ export default function Dashboard() {
   // After sync, poll for new score for up to 15s (agent runs async)
   const pollForNewScore = useCallback(async (prevScore: ResilienceScore | null) => {
     setPolling(true)
+    pollActive.current = true
     let attempts = 0
     const maxAttempts = 10
 
     const poll = async () => {
-      if (attempts >= maxAttempts) { setPolling(false); return }
+      if (!pollActive.current || attempts >= maxAttempts) { setPolling(false); return }
       attempts++
       try {
         const res = await dashboardApi.getResilienceScore()
+        if (!pollActive.current) return
         const newScore = res.data
         if (newScore && (!prevScore || newScore.computedAt !== prevScore?.computedAt)) {
           setPreviousScore(prevScore)
           setScore(newScore)
-          // Also refresh NBA and goals
           recommendationsApi.getNextBestAction().then(r => setNba((r as any).data)).catch(() => {})
           goalsApi.getAll().then(r => setGoals((r as any).data)).catch(() => {})
           setPolling(false)
           setCurrentBatch(b => b + 1)
+          pollActive.current = false
           return
         }
         setTimeout(poll, 1500)
       } catch {
-        setTimeout(poll, 1500)
+        if (pollActive.current) setTimeout(poll, 1500)
       }
     }
     setTimeout(poll, 2000) // give agent time to start

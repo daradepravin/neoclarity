@@ -10,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import reactor.core.scheduler.Schedulers;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -124,15 +126,16 @@ public class SyncService {
 
         // Trigger agent re-run — this is where the score moves
         // Fire and forget — the UI polls for the result via existing endpoints
+        // publishOn(boundedElastic) keeps blocking JPA calls off the Reactor I/O thread
         String[] sessionId = {UUID.randomUUID().toString()};
         agentService.analyze(hid, "REFRESH")
+            .publishOn(Schedulers.boundedElastic())
             .doOnSuccess(result -> {
                 if (result != null) {
                     agentService.persistAnalysisResults(hid, result);
                     log.info("sync.agent_complete batch={} session={}", nextBatch, sessionId[0]);
                 }
             })
-            .doOnError(e -> log.warn("sync.agent_error batch={} err={}", nextBatch, e.getMessage()))
             .subscribe();
 
         boolean hasMore = nextBatch < SyncBatchFixtures.totalBatches();

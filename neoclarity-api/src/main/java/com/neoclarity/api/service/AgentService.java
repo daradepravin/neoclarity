@@ -99,7 +99,7 @@ public class AgentService {
             // ── Persist Resilience Score ──────────────────────────────────
             JsonNode scoreNode = result.get("resilience_score");
             if (scoreNode != null && !scoreNode.isNull()) {
-                JsonNode components = scoreNode.get("components");
+                JsonNode components = scoreNode.path("components");
                 ResilienceScore score = ResilienceScore.builder()
                     .scoreId(UUID.randomUUID().toString())
                     .customer(customer)

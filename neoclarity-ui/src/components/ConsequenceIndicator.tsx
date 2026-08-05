@@ -7,27 +7,26 @@ interface Props {
 }
 
 export default function ConsequenceIndicator({ currentScore, previousScore, syncResult }: Props) {
-  if (!currentScore || !syncResult) return null
+  if (!syncResult) return null
 
-  const emergencyFundMonths = (currentScore.components.emergencyFund / 100 * 6).toFixed(1)
+  const emergencyFundMonths = currentScore
+    ? (currentScore.components.emergencyFund / 100 * 6).toFixed(1)
+    : null
   const prevEmergencyFundMonths = previousScore
     ? (previousScore.components.emergencyFund / 100 * 6).toFixed(1)
     : null
 
-  const runwayShrunk = previousScore &&
-    currentScore.components.emergencyFund < previousScore.components.emergencyFund
+  const scoreDelta = currentScore && previousScore
+    ? currentScore.overall - previousScore.overall
+    : 0
 
-  const incomeDropped = previousScore &&
-    currentScore.components.incomeStability < previousScore.components.incomeStability - 10
-
-  const scoreDelta = previousScore ? currentScore.overall - previousScore.overall : 0
-
-  // Choose consequence based on which batch just ran
   const consequence = syncResult.batchNumber === 1 ? null :
     syncResult.batchNumber === 2 ? {
       icon: '⚠️',
       title: 'Emergency fund runway shrinking',
-      detail: `Coverage dropped from ${prevEmergencyFundMonths} → ${emergencyFundMonths} months. Target: 6 months.`,
+      detail: prevEmergencyFundMonths && emergencyFundMonths
+        ? `Coverage dropped from ${prevEmergencyFundMonths} → ${emergencyFundMonths} months. Target: 6 months.`
+        : 'Emergency fund runway is under pressure. Target: 6 months.',
       color: '#C77700',
       bg: '#FEF3C7',
       border: '#F0C060',

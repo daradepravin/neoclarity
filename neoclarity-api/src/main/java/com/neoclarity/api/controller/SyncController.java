@@ -1,6 +1,7 @@
 package com.neoclarity.api.controller;
 
 import com.neoclarity.api.model.Customer;
+import com.neoclarity.api.service.SyncBatchFixtures;
 import com.neoclarity.api.service.SyncService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -38,12 +39,8 @@ public class SyncController {
     @GetMapping("/status")
     public ResponseEntity<StatusResponse> status(@AuthenticationPrincipal Customer customer) {
         int current = syncService.currentBatch(customer.getHashedId());
-        int total = SyncService.SyncResult.class.getDeclaredFields().length; // unused
-        return ResponseEntity.ok(new StatusResponse(
-            current,
-            3,  // total batches
-            current < 3
-        ));
+        int total = SyncBatchFixtures.totalBatches();
+        return ResponseEntity.ok(new StatusResponse(current, total, current < total));
     }
 
     public record StatusResponse(int currentBatch, int totalBatches, boolean hasMore) {}
