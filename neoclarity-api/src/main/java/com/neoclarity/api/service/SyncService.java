@@ -130,13 +130,15 @@ public class SyncService {
         String[] sessionId = {UUID.randomUUID().toString()};
         agentService.analyze(hid, "REFRESH")
             .publishOn(Schedulers.boundedElastic())
-            .doOnSuccess(result -> {
-                if (result != null) {
-                    agentService.persistAnalysisResults(hid, result);
-                    log.info("sync.agent_complete batch={} session={}", nextBatch, sessionId[0]);
-                }
-            })
-            .subscribe();
+            .subscribe(
+                result -> {
+                    if (result != null) {
+                        agentService.persistAnalysisResults(hid, result);
+                        log.info("sync.agent_complete hid={}", hid.substring(0, 8));
+                    }
+                },
+                error -> log.warn("sync.agent_error err={}", error.getMessage())
+            );
 
         boolean hasMore = nextBatch < SyncBatchFixtures.totalBatches();
 

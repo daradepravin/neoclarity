@@ -76,8 +76,10 @@ public class AgentService {
             .bodyToMono(JsonNode.class)
             .timeout(Duration.ofMillis(timeoutMs))
             .doOnSuccess(r -> log.info("agent.analyze_ok hid={}", customerHashedId.substring(0, 8)))
-            .doOnError(e -> log.warn("agent.analyze_fail hid={} err={}", customerHashedId.substring(0, 8), e.getMessage()))
-            .onErrorReturn(null);
+            .onErrorResume(e -> {
+                log.warn("agent.analyze_fail hid={} err={}", customerHashedId.substring(0, 8), e.getMessage());
+                return Mono.empty();
+            });
     }
 
     /**
